@@ -25,7 +25,7 @@ enum status {
 static enum status current_status = A;
 static char *secret_word;
 static char *guessed;
-static char *tree =
+static char tree[] =
 "  _______\n"
 "  |     |\n"
 "  |      \n"
@@ -38,7 +38,7 @@ static int secret_hist[ABC] = {0};
 static int guessed_correct_hist[ABC] = {0};
 static int guessed_incorrect_hist[ABC] = {0};
 static int tries_made = 0;
-static int limb_idx[] = {28, 37, 38, 39, 50, 49};
+static int limb_idx[] = {28, 38, 37, 39, 48, 50};
 static char limb_shape[] = {'O', '|', '/', '\\', '/', '\\'};
 
 /* methods */
@@ -80,7 +80,9 @@ static void build_secret_histogram(void)
 /* Helper function, updated the tree after a wrong guess */
 void update_tree_add_limb(void)
 {
-
+	if (tries_made == 0)
+		return;
+	tree[limb_idx[tries_made - 1]] = limb_shape[tries_made - 1];
 }
 
 /* Helper function, updated the guess word w.r.t. a given char */
@@ -110,7 +112,10 @@ void update_game_params(char *char_to_guess)
 	if (guessed_incorrect_hist[char_idx] == 0) {
 		tries_made++;
 		guessed_incorrect_hist[char_idx] = 1;
+		update_tree_add_limb();
 	}
+
+	// game over? TODO: complete
 }
 
 static ssize_t read_status_A(struct file *filep, char * __user buf, size_t count, loff_t *fpos)

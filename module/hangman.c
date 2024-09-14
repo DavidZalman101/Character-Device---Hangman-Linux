@@ -15,6 +15,8 @@
 #define TREE_SIZE 62
 #define ABC 26
 
+loff_t my_file_max_size = 0;
+
 enum status {
 	A,
 	B,
@@ -93,6 +95,16 @@ void update_guess_word(char *char_to_guess)
 			guessed[i] = char_to_guess[0];
 }
 
+/* Helper function, checks if secret were descovered */
+int check_if_secret_found(void)
+{
+	for (int i = 0; i < ABC; i++)
+		if (guessed_correct_hist[i] != secret_hist[i])
+			return 0;
+	
+	return tries_made < MAX_MISTAKES;
+}
+
 /* Helper function, updated the hists and tries_made w.r.t. a given char */
 void update_game_params(char *char_to_guess)
 {
@@ -105,6 +117,9 @@ void update_game_params(char *char_to_guess)
 	if (secret_hist[char_idx] == 1) {
 		guessed_correct_hist[char_idx] = 1;
 		update_guess_word(char_to_guess);
+		// game won?
+		if (check_if_secret_found() == 1)
+			current_status = C;
 		return;
 	}
 
@@ -115,7 +130,9 @@ void update_game_params(char *char_to_guess)
 		update_tree_add_limb();
 	}
 
-	// game over? TODO: complete
+	// game over?
+	if (tries_made == MAX_MISTAKES)
+		current_status = C;
 }
 
 static ssize_t read_status_A(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
@@ -132,7 +149,7 @@ static ssize_t read_status_A(struct file *filep, char * __user buf, size_t count
 	bytes_not_written = copy_to_user(buf, msg + *fpos, count);
 
 	if (bytes_not_written > 0)
-		return -EFAULT;
+		return -EINVAL;
 
 	*fpos += count;
 
@@ -164,7 +181,7 @@ static ssize_t read_status_B(struct file *filep, char * __user buf, size_t count
 	bytes_not_written = copy_to_user(buf, total_str + *fpos, count);
 
 	if (bytes_not_written) {
-		retval = -EFAULT;
+		retval = -EINVAL;
 		goto out;
 	}
 
@@ -176,10 +193,14 @@ out:
 	return retval;
 }
 
+static ssize_t read_status_C(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
+{
+	return read_status_B(filep, buf, count, fpos);
+}
+
 /* called when somebody tries to read from out device file */
 static ssize_t device_read(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
-	// TODO: check if count <= 0
 	ssize_t res = 0;
 
 	switch (current_status) {
@@ -190,20 +211,24 @@ static ssize_t device_read(struct file *filep, char * __user buf, size_t count, 
 		res = read_status_B(filep, buf, count, fpos);
 		break;
 	case C:
-		res = -EFAULT;
+		res = read_status_C(filep, buf, count, fpos);
 		break;
 	default:
-		res = -EFAULT;
+		res = -EINVAL;
 		break;
 	}
 
 	return res;
 }
 
+
 static ssize_t device_write_A(struct file *filep, const char __user *buf,
 			      size_t count, loff_t *fpos)
 {
-	ssize_t retval = -EFAULT;
+	ssize_t retval = -EINVAL;
+
+	if (count == 0)
+		return retval;
 
 	secret_word = kmalloc(count + 1, GFP_KERNEL);
 
@@ -227,6 +252,7 @@ static ssize_t device_write_A(struct file *filep, const char __user *buf,
 	}
 
 	secret_word_len = count;
+	my_file_max_size = count;
 	build_secret_histogram();
 	tries_made = 0;
 	current_status = B;
@@ -236,7 +262,7 @@ static ssize_t device_write_A(struct file *filep, const char __user *buf,
 
 mem_error_1:
 	pr_info("%s got mem error", __func__);
-	retval = -EFAULT;
+	retval = -EINVAL;
 	kfree(guessed);
 	guessed = NULL;
 
@@ -245,7 +271,6 @@ mem_error_2:
 	secret_word = NULL;
 
 out:
-	current_status = B; /* This is an important change for the course of the game */
 	return retval;
 }
 
@@ -255,10 +280,13 @@ static ssize_t device_write_B(struct file *filep, const char __user *buf,
 {
 	if (tries_made == MAX_MISTAKES) {
 		pr_info("Max mistakes were made, game over. iocl 1 to play again.\n");
-		return -EFAULT;
+		return -EINVAL;
 	}
 
-	ssize_t retval = -EFAULT;
+	if (count == 0)
+		return 0;
+
+	ssize_t retval = -EINVAL;
 	char *char_to_guess = kmalloc(2, GFP_KERNEL);
 
 	if (copy_from_user(char_to_guess, buf, 1))
@@ -283,7 +311,7 @@ mem_error_1:
 
 mem_error_2:
 	pr_info("%s for mem error", __func__);
-	return -EFAULT;
+	return -EINVAL;
 
 out:
 	kfree(char_to_guess);
@@ -291,10 +319,15 @@ out:
 	return retval;
 }
 
+static ssize_t device_write_C(struct file *filep, const char __user *buf,
+			      size_t count, loff_t *fpos)
+{
+	return -EINVAL;
+}
+
 /* called when somebody tries to write into our device file */
 static ssize_t device_write(struct file *filep, const char __user *buf, size_t count, loff_t *fpos)
 {
-	// TODO: check if count <= 0
 	ssize_t res = 0;
 
 	switch (current_status) {
@@ -304,13 +337,14 @@ static ssize_t device_write(struct file *filep, const char __user *buf, size_t c
 		break;
 	case B:
 		res = device_write_B(filep, buf, count, fpos);
-		// if game over, there won't be progess
+		// if the is game over, there won't be progess
 		break;
 	case C:
-		res = -EFAULT;
+		res = device_write_C(filep, buf, count, fpos);
+		// game over
 		break;
 	default:
-		res = -EFAULT;
+		res = -EINVAL;
 		break;
 	}
 
@@ -323,6 +357,7 @@ static struct file_operations device_fops = {
 	.release = device_release,
 	.read = device_read,
 	.write = device_write,
+	.llseek = generic_file_llseek,
 };
 
 static struct miscdevice my_misc_device = {

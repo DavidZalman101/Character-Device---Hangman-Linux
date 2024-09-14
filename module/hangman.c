@@ -8,6 +8,11 @@
 #include <linux/miscdevice.h>
 #include <linux/fs.h>
 #include <linux/uaccess.h>
+#include <linux/ioctl.h>
+
+#ifndef IOCTL_RESET
+#define IOCTL_RESET _IOW('r', 1, int)
+#endif
 
 #define MY_MISC_D_NAME "hangman"
 #define SUCCESS 0
@@ -135,6 +140,32 @@ void update_game_params(char *char_to_guess)
 		current_status = C;
 }
 
+void reset_game_params(void)
+{
+	current_status = A;
+
+	if (!secret_word)
+		kfree(secret_word);
+
+	secret_word = NULL;
+	secret_word_len = 0;
+
+	if (!guessed)
+		kfree(guessed);
+
+	guessed = NULL;
+
+	// clean tree
+	for (int i = 0; i < MAX_MISTAKES; i++)
+		tree[limb_idx[i]] = ' ';
+
+	memset(secret_hist, 0, sizeof(secret_hist));
+	memset(guessed_correct_hist, 0, sizeof(guessed_correct_hist));
+	memset(guessed_incorrect_hist, 0, sizeof(guessed_incorrect_hist));
+	tries_made = 0;
+	my_file_max_size = 0;
+}
+
 static ssize_t read_status_A(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
 	char *msg = "Please enter the word to be guessed\n";
@@ -221,7 +252,6 @@ static ssize_t device_read(struct file *filep, char * __user buf, size_t count, 
 	return res;
 }
 
-
 static ssize_t device_write_A(struct file *filep, const char __user *buf,
 			      size_t count, loff_t *fpos)
 {
@@ -230,12 +260,12 @@ static ssize_t device_write_A(struct file *filep, const char __user *buf,
 	if (count == 0)
 		return retval;
 
-	secret_word = kmalloc(count + 1, GFP_KERNEL);
+	secret_word = kmalloc(count, GFP_KERNEL);
 
 	if (!secret_word)
 		return -ENOMEM;
 
-	guessed = kmalloc(count + 1, GFP_KERNEL);
+	guessed = kmalloc(count, GFP_KERNEL);
 
 	if (!guessed)
 		goto mem_error_2;
@@ -351,6 +381,21 @@ static ssize_t device_write(struct file *filep, const char __user *buf, size_t c
 	return res;
 }
 
+static long device_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
+{
+	switch(cmd) {
+	case IOCTL_RESET:
+		// reset the game
+		reset_game_params();
+		break;
+	default:
+		return -EINVAL;
+		break;
+	}
+
+	return 0;
+}
+
 static struct file_operations device_fops = {
 	.owner = THIS_MODULE,
 	.open = device_open,
@@ -358,6 +403,7 @@ static struct file_operations device_fops = {
 	.read = device_read,
 	.write = device_write,
 	.llseek = generic_file_llseek,
+	.unlocked_ioctl = device_ioctl,
 };
 
 static struct miscdevice my_misc_device = {
@@ -383,8 +429,7 @@ static int __init my_misc_driver_init(void)
 static void __exit my_misc_device_exit(void)
 {
 	/* free dynammically allocated data */
-	kfree(secret_word);
-	kfree(guessed);
+	reset_game_params();
 	misc_deregister(&my_misc_device);
 	pr_info("Misc device unregistered: /dev/%s\n", my_misc_device.name);
 }

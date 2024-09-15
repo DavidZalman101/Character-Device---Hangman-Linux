@@ -197,8 +197,7 @@ static ssize_t read_status_A(struct file *filep, char * __user buf, size_t count
 static ssize_t read_status_B(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
 	ssize_t retval = 0, bytes_not_written = 0;
-	int total_str_len = TREE_SIZE + secret_word_len + 2;
-
+	int total_str_len = TREE_SIZE + secret_word_len + 1;
 	char *total_str = kmalloc(total_str_len + 1, GFP_KERNEL);
 
 	if (!total_str)
@@ -207,7 +206,6 @@ static ssize_t read_status_B(struct file *filep, char * __user buf, size_t count
 	strscpy(total_str, guessed, secret_word_len + 1);
 	total_str[(unsigned int)secret_word_len] = '\n';
 	strcat(total_str + secret_word_len + 1, tree);
-	total_str[(unsigned int)secret_word_len + TREE_SIZE + 1] = '\0';
 	total_str[(unsigned int)secret_word_len + TREE_SIZE + 2] = '\0';
 
 	if (*fpos >= total_str_len)

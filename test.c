@@ -101,6 +101,7 @@ int check_if_in_A(int fd)
 	buffer[bytes_read] = '\0';
 
 	if (strcmp(buffer, read_in_a) != 0) {
+		printf("got [%s]\n", buffer);
 		is_success = 0;
 	}
 	llseek_ret = lseek(fd, 0, SEEK_SET);
@@ -617,9 +618,9 @@ void check_read_in_B(void)
 		goto close;
 	}
 	// now we are in B state, lets read
-	char buffer[READ_BUFFER_SIZE];
+	//char buffer[READ_BUFFER_SIZE];
+	char buffer[HANGMAN_AND_SECRET_WORD_SIZE + 1] = {0};
 	ssize_t bytes_read = read_helper(file, buffer, READ_BUFFER_SIZE);
-	printf("%zu\n", bytes_read);
 
 	if (bytes_read != HANGMAN_AND_SECRET_WORD_SIZE) {
 		PRINT_ERR("unexpected error while reading, errno=%d", errno);
@@ -629,8 +630,9 @@ void check_read_in_B(void)
 	char buffer_tmp[READ_BUFFER_SIZE];
 
 	strcpy(buffer_tmp, secret_word_hidden);
-	strcat(buffer_tmp, hangman_empty);
-	if (strcmp(buffer, buffer_tmp) != 0) {
+	buffer_tmp[SECRET_WORD_LEN] = '\n';
+	strcat(buffer_tmp + SECRET_WORD_LEN + 1, hangman_empty);
+	if (strncmp(buffer, buffer_tmp, HANGMAN_AND_SECRET_WORD_SIZE) != 0) {
 		PRINT_ERR("read secret word and hangman drawing are not as expected");
 		is_success = false;
 		goto close;
@@ -649,6 +651,7 @@ close:
  */
 void check_correct_character_not_advance_figure(void)
 {
+	printf("%s\n", __func__);
 	bool is_success = true;
 	int file = open_file();
 
@@ -665,7 +668,7 @@ void check_correct_character_not_advance_figure(void)
 		goto close;
 	}
 	// now we are in B state, lets read
-	char buffer[READ_BUFFER_SIZE];
+	char buffer[HANGMAN_AND_SECRET_WORD_SIZE + 1] = {0};
 	ssize_t bytes_read = read_helper(file, buffer, READ_BUFFER_SIZE);
 
 	if (bytes_read != HANGMAN_AND_SECRET_WORD_SIZE) {
@@ -1328,6 +1331,8 @@ int main(void)
 {
 	printf("1..%d\n", NUM_TESTS);
 
+	//HOOK_AND_INVOKE(10, test_ptrs);
+	//return 0;
 	for (int i = 0; i < NUM_TESTS; i++) {
 		current_func_num = i + 1;
 		HOOK_AND_INVOKE(i, test_ptrs);

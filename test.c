@@ -10,11 +10,12 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <pthread.h>
+#include "hangman_device_ioctl.h"
 
 #define NUM_TESTS 25
 #define NON_ZERO 1
 #define READ_BUFFER_SIZE 500 // hangman drawing+secret_word will be less
-#define IO_CTL_RESET 1
+//#define IOCTL_RESET 1
 #define HANGMAN_SIZE
 const char *read_in_a = "Please enter the word to be guessed\n";
 const char *filename = "/dev/hangman";
@@ -115,18 +116,17 @@ int check_if_in_C(int fd, const char *some_char)
 	/* we are in C state, we should get errno EINVAL in case
 	 * we try to write a legit character
 	 */
-	int is_success = 1;
 
 	if (!is_all_a_z(some_char)) {
 		PRINT_ERR("%s; not all chars are a-z", __func__);
 		return -1;
 	}
+
 	ssize_t bytes_write = write(fd, some_char, 1);
 
-	if (!(bytes_write == -1 && errno != EINVAL)) {
-		is_success = 0;
-	}
-	return is_success;
+	if (bytes_write == -1 && errno == EINVAL)
+		return 1;
+	return 0;
 }
 
 int pick_secret_word(int fd, const char *secret_word, int secret_word_len);
@@ -265,7 +265,7 @@ int pick_secret_word(int fd, const char *secret_word, int secret_word_len)
 
 int do_reset(int fd)
 {
-	int ioctl_ret = ioctl(fd, IO_CTL_RESET, NULL);
+	int ioctl_ret = ioctl(fd, IOCTL_RESET, NULL);
 
 	if (ioctl_ret != 0) {
 		PRINT_ERR("unexpected error invoking ioctl; errno=%d", errno);
@@ -412,7 +412,7 @@ void check_invaild_ioctl(void)
 	if (!file)
 		return;
 
-	int ioctl_ret = ioctl(file, 2, NULL);
+	int ioctl_ret = ioctl(file, IOCTL_GARBAGE, NULL);
 
 	if (!(ioctl_ret == -1 && errno == EINVAL)) {
 		PRINT_ERR("expected EINVAL but got errno=%d", errno);
@@ -517,7 +517,7 @@ void check_reset_in_C(void)
 		goto close;
 	}
 	// we are in C states, lets validate.
-	if (validate_if_in_C(file, secret_word) != 0) {
+	if (validate_if_in_C(file, secret_word) == 0) {
 		is_success = false;
 		goto close;
 	}
@@ -619,6 +619,7 @@ void check_read_in_B(void)
 	// now we are in B state, lets read
 	char buffer[READ_BUFFER_SIZE];
 	ssize_t bytes_read = read_helper(file, buffer, READ_BUFFER_SIZE);
+	printf("%zu\n", bytes_read);
 
 	if (bytes_read != HANGMAN_AND_SECRET_WORD_SIZE) {
 		PRINT_ERR("unexpected error while reading, errno=%d", errno);
@@ -1326,6 +1327,7 @@ void (*test_ptrs[NUM_TESTS])(void) = {
 int main(void)
 {
 	printf("1..%d\n", NUM_TESTS);
+
 	for (int i = 0; i < NUM_TESTS; i++) {
 		current_func_num = i + 1;
 		HOOK_AND_INVOKE(i, test_ptrs);

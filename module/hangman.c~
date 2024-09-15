@@ -207,7 +207,7 @@ static ssize_t read_status_B(struct file *filep, char * __user buf, size_t count
 	strscpy(total_str, guessed, secret_word_len + 1);
 	total_str[(unsigned int)secret_word_len] = '\n';
 	strcat(total_str + secret_word_len + 1, tree);
-	total_str[(unsigned int)secret_word_len + TREE_SIZE + 1] = '\0';
+	total_str[(unsigned int)secret_word_len + TREE_SIZE + 1] = '\n';
 	total_str[(unsigned int)secret_word_len + TREE_SIZE + 2] = '\0';
 
 	if (*fpos >= total_str_len)
@@ -345,27 +345,25 @@ static ssize_t device_write_one_char_B(struct file *filep, const char __user *bu
 		return -EINVAL;
 
 	update_game_params(char_to_guess);
-	*fpos += 1;
+	(*fpos)++;
 	return 1;
 }
 
 static ssize_t device_write_B(struct file *filep, const char __user *buf,
 				       size_t count, loff_t *fpos)
 {
+	ssize_t bytes_written = 0;
+
 	if (count == 0)
 		return 0;
 
-	ssize_t bytes_written = 0;
 	ssize_t write_B_retval = device_write_one_char_B(filep, buf, count, fpos);
-	
-	if (write_B_retval <= 0)
-		return write_B_retval;
 
-	bytes_written++;
 	// keep trying to write one byte at a time
-	while (bytes_written <= count && write_B_retval > 0 && current_status == B) {
-		write_B_retval = device_write_one_char_B(filep, buf, count - bytes_written, fpos);
-		bytes_written++;
+	// TODO: change to for loop (depended on the same cond + count)
+	while (write_B_retval > 0 || current_status == B) {
+		bytes_written++; // wrote 1 byte
+		write_B_retval = device_write_one_char_B(filep, buf, count, fpos);
 	}
 
 	if (write_B_retval == -EROFS) //finished the game

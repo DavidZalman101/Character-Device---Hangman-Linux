@@ -6,6 +6,7 @@
 #include <linux/ioctl.h>
 
 // Define the ioctl command number
-#define IOCTL_RESET _IOW('r', 1, int)
+#define IOCTL_RESET _IO(0x07, 1)
+#define IOCTL_GARBAGE _IO(0x07, 2)
 
 #endif // MY_IOCTL_H

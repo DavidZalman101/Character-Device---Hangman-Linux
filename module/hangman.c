@@ -10,7 +10,6 @@
 #include <linux/uaccess.h>
 #include <linux/ioctl.h>
 
-
 #ifndef IOCTL_RESET
 #define IOCTL_RESET _IO(0x07, 1)
 #endif
@@ -81,6 +80,8 @@ static void build_secret_histogram(void)
 	if (!secret_word)
 		return;
 
+	memset(secret_hist, 0, sizeof(secret_hist));
+
 	for (int i = 0; i < secret_word_len; i++)
 		secret_hist[secret_word[i] - 'a'] = 1;
 }
@@ -90,6 +91,7 @@ void update_tree_add_limb(void)
 {
 	if (tries_made == 0)
 		return;
+
 	tree[limb_idx[tries_made - 1]] = limb_shape[tries_made - 1];
 }
 
@@ -111,7 +113,10 @@ int check_if_secret_found(void)
 	return tries_made < MAX_MISTAKES;
 }
 
-/* Helper function, updated the hists and tries_made w.r.t. a given char */
+/* Helper function, updated the hists and tries_made w.r.t. a given char
+ * if the char_to_guess is corrent, and was not discoved thus far
+ * return the number of appearances it has, o.w. -1
+ */
 void update_game_params(char *char_to_guess)
 {
 	if (!char_to_guess)
@@ -121,15 +126,19 @@ void update_game_params(char *char_to_guess)
 
 	// correct guess
 	if (secret_hist[char_idx] == 1) {
-		guessed_correct_hist[char_idx] = 1;
+		if (guessed_correct_hist[char_idx] == 1)
+			return; // was already guessed
+		
 		update_guess_word(char_to_guess);
-		// game won?
+		guessed_correct_hist[char_idx] = 1;
+
+		// game won? 
 		if (check_if_secret_found() == 1)
 			current_status = C;
 		return;
 	}
 
-	// incorrect guess
+	// incorrect guess - first time
 	if (guessed_incorrect_hist[char_idx] == 0) {
 		tries_made++;
 		guessed_incorrect_hist[char_idx] = 1;
@@ -222,7 +231,6 @@ static ssize_t read_status_B(struct file *filep, char * __user buf, size_t count
 	}
 
 	retval = count - bytes_not_written;
-	*fpos += retval;
 
 out:
 	kfree(total_str);
@@ -262,9 +270,6 @@ static ssize_t device_write_A(struct file *filep, const char __user *buf,
 {
 	ssize_t retval = 0;
 
-	if (!buf)
-		return -EFAULT;
-
 	if (count == 0)
 		goto invalid_arg_error;
 
@@ -294,7 +299,6 @@ static ssize_t device_write_A(struct file *filep, const char __user *buf,
 	build_secret_histogram();
 	tries_made = 0;
 	current_status = B;
-	*fpos = 0;
 	retval = count;
 	goto out;
 
@@ -339,6 +343,7 @@ static ssize_t device_write_one_char_B(struct file *filep, const char __user *bu
 
 	pr_info("%s - char_to_guess = [%s]\n", __func__, char_to_guess);
 
+
 	if (!string_all_a_z(char_to_guess, 1))
 		return -EINVAL;
 
@@ -355,21 +360,23 @@ static ssize_t device_write_B(struct file *filep, const char __user *buf,
 
 	ssize_t bytes_written = 0;
 	ssize_t write_B_retval = device_write_one_char_B(filep, buf, count, fpos);
-	
+
 	if (write_B_retval <= 0)
 		return write_B_retval;
 
 	bytes_written++;
 	// keep trying to write one byte at a time
-	while (bytes_written <= count && write_B_retval > 0 && current_status == B) {
+	while (bytes_written < count && write_B_retval > 0 && current_status == B) {
 		write_B_retval = device_write_one_char_B(filep, buf, count - bytes_written, fpos);
 		bytes_written++;
 	}
 
+	pr_info("%s - bytes_written = [%d] - count = [%d] - write_B_retval = [%d] - current_status = [%d]\n", __func__, (int) bytes_written, (int) count, (int) write_B_retval, (int) current_status);
+
 	if (write_B_retval == -EROFS) //finished the game
 		return bytes_written;
-	else if (write_B_retval < 0)
-		return write_B_retval; // error
+	else if (write_B_retval < 0) // eror
+		return write_B_retval;
 	return bytes_written;
 }
 
@@ -385,6 +392,7 @@ static ssize_t device_write(struct file *filep, const char __user *buf, size_t c
 	if (count == 0)
 		return 0;
 
+	*fpos = 0;
 	ssize_t res = 0;
 
 	switch (current_status) {
@@ -404,8 +412,8 @@ static ssize_t device_write(struct file *filep, const char __user *buf, size_t c
 		res = -EINVAL;
 		break;
 	}
-	*fpos = 0; // after each complete write, we reset the fpos
 
+	*fpos = 0; // after each complete write, we reset the fpos
 	return res;
 }
 

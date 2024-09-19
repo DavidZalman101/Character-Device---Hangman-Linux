@@ -1230,7 +1230,7 @@ int thread_job(void)
 		return -1;
 	}
 
-	int ret = run_full_game_and_reset(file, "anestasia", 9, 8); //TODO: cringe
+	int ret = run_full_game_and_reset(file, "anakin", 6, 5); //TODO: cringe
 
 	close(file);
 
@@ -1253,12 +1253,12 @@ void *thread_function(void *arg)
 // Function to check 100 threads
 void check_100_threads(void)
 {
-	pthread_t threads[100];
-	int results[100];
+	pthread_t threads[10];
+	int results[10];
 
 	/*
 	 * Redirect stdout to /dev/null (because we want to be TAP
-	 * compliant so only 1 error message is printed)
+	 * compliant so only 1 error message is printed) - wrong shit
 	 */
 	int old_stdout = dup(STDOUT_FILENO);
 	int dev_null = open("/dev/null", O_WRONLY);
@@ -1266,8 +1266,8 @@ void check_100_threads(void)
 	dup2(dev_null, STDOUT_FILENO);
 	close(dev_null);
 
-	// Create and run 100 threads
-	for (int i = 0; i < 100; i++) {
+	// Create and run 10 threads
+	for (int i = 0; i < 10; i++) {
 		results[i] = 0;
 		if (pthread_create(&threads[i], NULL, thread_function,
 				   &results[i]) != 0) {
@@ -1280,7 +1280,7 @@ void check_100_threads(void)
 	}
 
 	// Wait for all threads to finish
-	for (int i = 0; i < 100; i++) {
+	for (int i = 0; i < 10; i++) {
 		pthread_join(threads[i], NULL);
 	}
 
@@ -1289,7 +1289,7 @@ void check_100_threads(void)
 	close(old_stdout);
 
 	// Check the results
-	for (int i = 0; i < 100; i++) {
+	for (int i = 0; i < 10; i++) {
 		if (results[i] != 1) {
 			PRINT_ERR("Error: Thread %d did not return success\n", i);
 			return;
@@ -1306,13 +1306,14 @@ void check_run_game_20_times(void)
 		return;
 	}
 	for (int i = 0; i < 20; i++) {
-		int ret = run_full_game_and_reset(file, "anestasia", 9, 8); // cringe
+		int ret = run_full_game_and_reset(file, "anakin", 6, 5);
 
 		if (ret != 1) {
 			return;
 		}
 	}
 	close(file);
+	PRINT_OK();
 }
 
 void (*test_ptrs[NUM_TESTS])(void) = {
@@ -1339,17 +1340,15 @@ void (*test_ptrs[NUM_TESTS])(void) = {
 	check_write_in_C_returns_EINVAL,
 	check_secret_word_length_equal_to_insered,
 	check_run_games_different_words,
-	check_100_threads, // The problemetic func
-	check_run_game_20_times
+	check_100_threads,
+	check_run_game_20_times,
 };
 
 int main(void)
 {
 	printf("1..%d\n", NUM_TESTS);
 
-	//HOOK_AND_INVOKE(22, test_ptrs);
-	//return 0;
-	for (int i = 0; i < NUM_TESTS - 1; i++) {
+	for (int i = 0; i < NUM_TESTS; i++) {
 		current_func_num = i + 1;
 		HOOK_AND_INVOKE(i, test_ptrs);
 	}

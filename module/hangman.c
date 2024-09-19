@@ -3,6 +3,8 @@
  * module.c - Implements the hangman game
  */
 
+// TODO: set game args into 1 structure
+
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/miscdevice.h>
@@ -20,19 +22,9 @@
 #define TREE_SIZE 62
 #define ABC 26
 
-loff_t my_file_max_size = 0;
-
-enum status {
-	A,
-	B,
-	C
-};
-
 /* Interenal arguments of the game */
-static enum status current_status = A;
-static char *secret_word;
-static char *guessed;
-static char tree[] =
+loff_t my_file_max_size = 0;
+static char empty_tree[] =
 "  _______\n"
 "  |     |\n"
 "  |      \n"
@@ -40,28 +32,29 @@ static char tree[] =
 "  |       \n"
 "  |\n"
 "__|__\n";
-static char secret_word_len;
-static int secret_hist[ABC] = {0};
-static int guessed_correct_hist[ABC] = {0};
-static int guessed_incorrect_hist[ABC] = {0};
-static int tries_made = 0;
 static int limb_idx[] = {28, 38, 37, 39, 48, 50};
 static char limb_shape[] = {'O', '|', '/', '\\', '/', '\\'};
 
+enum status {
+	A,
+	B,
+	C
+};
+
+/* per-instance game structure */
+struct hangman_args {
+	int secret_word_len;
+	int secret_hist[ABC];
+	int guessed_correct_hist[ABC];
+	int guessed_incorrect_hist[ABC];
+	int tries_made;
+	enum status current_status;
+	char *secret_word;
+	char *guessed;
+	char tree[TREE_SIZE + 1];
+};
+
 /* methods */
-
-/* Called when a process tried to open the device file */
-static int device_open(struct inode *inode, struct file *filep)
-{
-	return SUCCESS;
-}
-
-/* Called when a process closes the device file */
-static int device_release(struct inode *inode, struct file *file)
-{
-	return SUCCESS;
-}
-
 /* helper function, checks if a given string is constructed by lower letters a-z only */
 static int string_all_a_z(char *str, int len)
 {
@@ -75,105 +68,139 @@ static int string_all_a_z(char *str, int len)
 }
 
 /* Helper function, builds the secret histogram of the secret word */
-static void build_secret_histogram(void)
+static void build_secret_histogram(struct hangman_args *args)
 {
-	if (!secret_word)
+	if (!args || !args->secret_word)
 		return;
 
-	memset(secret_hist, 0, sizeof(secret_hist));
+	memset(args->secret_hist, 0, sizeof(args->secret_hist));
 
-	for (int i = 0; i < secret_word_len; i++)
-		secret_hist[secret_word[i] - 'a'] = 1;
+	for (int i = 0; i < args->secret_word_len; i++)
+		args->secret_hist[args->secret_word[i] - 'a'] = 1;
 }
 
 /* Helper function, updated the tree after a wrong guess */
-void update_tree_add_limb(void)
+void update_tree_add_limb(struct hangman_args *args)
 {
-	if (tries_made == 0)
+	if (!args || args->tries_made == 0)
 		return;
 
-	tree[limb_idx[tries_made - 1]] = limb_shape[tries_made - 1];
+	args->tree[limb_idx[args->tries_made - 1]] = limb_shape[args->tries_made - 1];
 }
 
 /* Helper function, updated the guess word w.r.t. a given char */
-void update_guess_word(char *char_to_guess)
+void update_guess_word(struct hangman_args *args, char *char_to_guess)
 {
-	for (int i = 0; i < secret_word_len; i++)
-		if (secret_word[i] == char_to_guess[0])
-			guessed[i] = char_to_guess[0];
+	if (!args)
+		return;
+
+	for (int i = 0; i < args->secret_word_len; i++)
+		if (args->secret_word[i] == char_to_guess[0])
+			args->guessed[i] = char_to_guess[0];
 }
 
 /* Helper function, checks if secret were descovered */
-int check_if_secret_found(void)
+int check_if_secret_found(struct hangman_args *args)
 {
+	if (!args)
+		return 0;
+
 	for (int i = 0; i < ABC; i++)
-		if (guessed_correct_hist[i] != secret_hist[i])
+		if (args->guessed_correct_hist[i] != args->secret_hist[i])
 			return 0;
 	
-	return tries_made < MAX_MISTAKES;
+	return args->tries_made < MAX_MISTAKES;
 }
 
 /* Helper function, updated the hists and tries_made w.r.t. a given char
  * if the char_to_guess is corrent, and was not discoved thus far
  * return the number of appearances it has, o.w. -1
  */
-void update_game_params(char *char_to_guess)
+void update_game_params(struct hangman_args *args, char *char_to_guess)
 {
-	if (!char_to_guess)
+	if (!char_to_guess || !args)
 		return;
 
 	int char_idx = char_to_guess[0] - 'a';
 
 	// correct guess
-	if (secret_hist[char_idx] == 1) {
-		if (guessed_correct_hist[char_idx] == 1)
+	if (args->secret_hist[char_idx] == 1) {
+		if (args->guessed_correct_hist[char_idx] == 1)
 			return; // was already guessed
 		
-		update_guess_word(char_to_guess);
-		guessed_correct_hist[char_idx] = 1;
+		update_guess_word(args, char_to_guess);
+		args->guessed_correct_hist[char_idx] = 1;
 
 		// game won? 
-		if (check_if_secret_found() == 1)
-			current_status = C;
+		if (check_if_secret_found(args) == 1)
+			args->current_status = C;
 		return;
 	}
 
 	// incorrect guess - first time
-	if (guessed_incorrect_hist[char_idx] == 0) {
-		tries_made++;
-		guessed_incorrect_hist[char_idx] = 1;
-		update_tree_add_limb();
+	if (args->guessed_incorrect_hist[char_idx] == 0) {
+		args->tries_made++;
+		args->guessed_incorrect_hist[char_idx] = 1;
+		update_tree_add_limb(args);
 	}
 
 	// game over?
-	if (tries_made == MAX_MISTAKES)
-		current_status = C;
+	if (args->tries_made == MAX_MISTAKES)
+		args->current_status = C;
 }
 
-void reset_game_params(void)
+/* Helper function, resets the arguments of the game */
+void reset_game_params(struct hangman_args *args)
 {
-	current_status = A;
+	if (!args)
+		return;
 
-	if (!secret_word)
-		kfree(secret_word);
+	args->secret_word_len = 0;
+	memset(args->secret_hist, 0, sizeof(args->secret_hist));
+	memset(args->guessed_correct_hist, 0, sizeof(args->guessed_correct_hist));
+	memset(args->guessed_incorrect_hist, 0, sizeof(args->guessed_incorrect_hist));
+	args->tries_made = 0;
+	args->current_status = A;
 
-	secret_word = NULL;
-	secret_word_len = 0;
+	if (args->secret_word)
+		kfree(args->secret_word);
 
-	if (!guessed)
-		kfree(guessed);
+	if (args->guessed)
+		kfree(args->guessed);
 
-	guessed = NULL;
+	args->secret_word = NULL;
+	args->guessed = NULL;
 
-	// clean tree
-	for (int i = 0; i < MAX_MISTAKES; i++)
-		tree[limb_idx[i]] = ' ';
-
-	memset(secret_hist, 0, sizeof(secret_hist));
-	memset(guessed_correct_hist, 0, sizeof(guessed_correct_hist));
-	memset(guessed_incorrect_hist, 0, sizeof(guessed_incorrect_hist));
-	tries_made = 0;
+	strscpy(args->tree, empty_tree, TREE_SIZE + 1);
 	my_file_max_size = 0;
+}
+
+/* Called when a process tried to open the device file */
+static int device_open(struct inode *inode, struct file *filep)
+{
+	struct hangman_args *args = kmalloc(sizeof(struct hangman_args), GFP_KERNEL);
+
+	if (!args)
+		return -ENOMEM;
+
+	reset_game_params(args);
+	filep->private_data = args;
+	pr_info("%s new game started, have fun!\n", __func__);
+
+	return SUCCESS;
+}
+
+/* Called when a process closes the device file */
+static int device_release(struct inode *inode, struct file *filep)
+{
+	struct hangman_args *args = filep->private_data;
+
+	reset_game_params(args);
+
+	if (args)
+		kfree(args);
+
+	return SUCCESS;
 }
 
 static ssize_t read_status_A(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
@@ -206,16 +233,17 @@ static ssize_t read_status_A(struct file *filep, char * __user buf, size_t count
 static ssize_t read_status_B(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
 	ssize_t retval = 0, bytes_not_written = 0;
-	int total_str_len = TREE_SIZE + secret_word_len + 1;
+	struct hangman_args *args = filep->private_data;
+	int total_str_len = TREE_SIZE + args->secret_word_len + 1;
 	char *total_str = kmalloc(total_str_len + 1, GFP_KERNEL);
 
 	if (!total_str)
 		return -ENOMEM;
 
-	strscpy(total_str, guessed, secret_word_len + 1);
-	total_str[(unsigned int)secret_word_len] = '\n';
-	strcat(total_str + secret_word_len + 1, tree);
-	total_str[(unsigned int)secret_word_len + TREE_SIZE + 2] = '\0';
+	strscpy(total_str, args->guessed, args->secret_word_len + 1);
+	total_str[(unsigned int)args->secret_word_len] = '\n';
+	strcat(total_str + args->secret_word_len + 1, args->tree);
+	total_str[(unsigned int)args->secret_word_len + TREE_SIZE + 2] = '\0';
 
 	if (*fpos >= total_str_len)
 		goto out;
@@ -246,8 +274,12 @@ static ssize_t read_status_C(struct file *filep, char * __user buf, size_t count
 static ssize_t device_read(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
 	ssize_t res = 0;
+	struct hangman_args* args = filep->private_data;
 
-	switch (current_status) {
+	if (!args)
+		return -EINVAL;
+
+	switch (args->current_status) {
 	case A:
 		res = read_status_A(filep, buf, count, fpos);
 		break;
@@ -273,32 +305,34 @@ static ssize_t device_write_A(struct file *filep, const char __user *buf,
 	if (count == 0)
 		goto invalid_arg_error;
 
-	secret_word = kmalloc(count, GFP_KERNEL);
+	struct hangman_args *args = filep->private_data;
 
-	if (!secret_word)
+	args->secret_word = kmalloc(count, GFP_KERNEL);
+
+	if (!args->secret_word)
 		goto mem_error_1;
 
-	guessed = kmalloc(count, GFP_KERNEL);
+	args->guessed = kmalloc(count, GFP_KERNEL);
 
-	if (!guessed)
+	if (!args->guessed)
 		goto mem_error_1;
 
-	memset(guessed, '*', count);
+	memset(args->guessed, '*', count);
 
-	if (copy_from_user(secret_word, buf, count))
+	if (copy_from_user(args->secret_word, buf, count))
 		goto mem_error_2;
 
-	if (!string_all_a_z(secret_word, count)) {
+	if (!string_all_a_z(args->secret_word, count)) {
 		pr_info("%s got string [%s] which is not all lower case a-z\n",
-			__func__, secret_word);
+			__func__, args->secret_word);
 		goto invalid_arg_error;
 	}
 
-	secret_word_len = count;
-	my_file_max_size = count;
-	build_secret_histogram();
-	tries_made = 0;
-	current_status = B;
+	args->secret_word_len = count;
+	my_file_max_size = count; //TODO: um?
+	build_secret_histogram(args);
+	args->tries_made = 0;
+	args->current_status = B;
 	retval = count;
 	goto out;
 
@@ -318,7 +352,7 @@ mem_error_2:
 	goto reset;
 
 reset:
-	reset_game_params();
+	reset_game_params(args);
 
 out:
 	return retval;
@@ -328,7 +362,9 @@ out:
 static ssize_t device_write_one_char_B(struct file *filep, const char __user *buf,
 				       size_t count, loff_t *fpos)
 {
-	if (tries_made == MAX_MISTAKES || current_status == C)
+	struct hangman_args *args = filep->private_data;
+
+	if (args->tries_made == MAX_MISTAKES || args->current_status == C)
 		return -EROFS; // finished the game
 
 	if (count == 0)
@@ -341,13 +377,10 @@ static ssize_t device_write_one_char_B(struct file *filep, const char __user *bu
 
 	char_to_guess[1] = '\0';
 
-	pr_info("%s - char_to_guess = [%s]\n", __func__, char_to_guess);
-
-
 	if (!string_all_a_z(char_to_guess, 1))
 		return -EINVAL;
 
-	update_game_params(char_to_guess);
+	update_game_params(args, char_to_guess);
 	*fpos += 1;
 	return 1;
 }
@@ -358,6 +391,7 @@ static ssize_t device_write_B(struct file *filep, const char __user *buf,
 	if (count == 0)
 		return 0;
 
+	struct hangman_args *args = filep->private_data;
 	ssize_t bytes_written = 0;
 	ssize_t write_B_retval = device_write_one_char_B(filep, buf, count, fpos);
 
@@ -366,12 +400,10 @@ static ssize_t device_write_B(struct file *filep, const char __user *buf,
 
 	bytes_written++;
 	// keep trying to write one byte at a time
-	while (bytes_written < count && write_B_retval > 0 && current_status == B) {
+	while (bytes_written < count && write_B_retval > 0 && args->current_status == B) {
 		write_B_retval = device_write_one_char_B(filep, buf, count - bytes_written, fpos);
 		bytes_written++;
 	}
-
-	pr_info("%s - bytes_written = [%d] - count = [%d] - write_B_retval = [%d] - current_status = [%d]\n", __func__, (int) bytes_written, (int) count, (int) write_B_retval, (int) current_status);
 
 	if (write_B_retval == -EROFS) //finished the game
 		return bytes_written;
@@ -395,7 +427,9 @@ static ssize_t device_write(struct file *filep, const char __user *buf, size_t c
 	*fpos = 0;
 	ssize_t res = 0;
 
-	switch (current_status) {
+	struct hangman_args *args = filep->private_data;
+
+	switch (args->current_status) {
 	case A:
 		res = device_write_A(filep, buf, count, fpos);
 		// if succesfull, current_status was changed to B
@@ -419,15 +453,12 @@ static ssize_t device_write(struct file *filep, const char __user *buf, size_t c
 
 static long device_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
-	pr_info("%s\n", __func__);
 	switch(cmd) {
 	case IOCTL_RESET:
 		// reset the game
-		pr_info("%s foo\n", __func__);
-		reset_game_params();
+		reset_game_params(filep->private_data);
 		break;
 	default:
-		pr_info("%s bar\n", __func__);
 		return -EINVAL;
 	}
 
@@ -467,7 +498,6 @@ static int __init my_misc_driver_init(void)
 static void __exit my_misc_device_exit(void)
 {
 	/* free dynammically allocated data */
-	reset_game_params();
 	misc_deregister(&my_misc_device);
 	pr_info("Misc device unregistered: /dev/%s\n", my_misc_device.name);
 }

@@ -1339,7 +1339,7 @@ void (*test_ptrs[NUM_TESTS])(void) = {
 	check_write_in_C_returns_EINVAL,
 	check_secret_word_length_equal_to_insered,
 	check_run_games_different_words,
-	check_100_threads,
+	check_100_threads, // The problemetic func
 	check_run_game_20_times
 };
 
@@ -1349,7 +1349,7 @@ int main(void)
 
 	//HOOK_AND_INVOKE(22, test_ptrs);
 	//return 0;
-	for (int i = 0; i < NUM_TESTS - 2; i++) {
+	for (int i = 0; i < NUM_TESTS - 1; i++) {
 		current_func_num = i + 1;
 		HOOK_AND_INVOKE(i, test_ptrs);
 	}

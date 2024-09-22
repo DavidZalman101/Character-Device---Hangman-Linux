@@ -1108,10 +1108,13 @@ void check_write_zero_bytes_in_B_returns_no_error(void)
 		is_success = false;
 		goto close;
 	}
+	lseek(file, 0, SEEK_SET);
 	// state of game should have not changed (it should have stayed empty)
-	char buffer_2[HANGMAN_AND_SECRET_WORD_SIZE];
-	ssize_t bytes_read_2 = read(file, buffer_2, HANGMAN_AND_SECRET_WORD_SIZE);
+	char buffer_2[HANGMAN_AND_SECRET_WORD_SIZE + 1];
+	ssize_t bytes_read_2 = read(file, buffer_2, HANGMAN_AND_SECRET_WORD_SIZE + 1);
 	if (bytes_read_2 != HANGMAN_AND_SECRET_WORD_SIZE) {
+		puts("here");
+		printf("bytes_read_2 = [%d] -- HANGMAN_AND_SECRET_WORD_SIZE = [%d]\n", (int)bytes_read_2, HANGMAN_AND_SECRET_WORD_SIZE);
 		PRINT_ERR("unexpected error while reading, errno=%d", errno);
 		is_success = false;
 		goto close;

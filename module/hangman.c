@@ -3,7 +3,8 @@
  * module.c - Implements the hangman game
  */
 
-// TODO: create 10 device files for the game
+// TODO: add feature, modules gets a param at load time for 
+// number of device files to create
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -290,6 +291,8 @@ static ssize_t read_status_C(struct file *filep, char * __user buf, size_t count
 /* called when somebody tries to read from out device file */
 static ssize_t device_read(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
+	pr_info("[%s]: count = [%d] -- *fpos = [%d]\n", __func__,  (int)count, (int)*fpos);
+
 	ssize_t res = 0;
 	struct hangman_args* args = filep->private_data;
 
@@ -443,6 +446,8 @@ static ssize_t device_write(struct file *filep, const char __user *buf, size_t c
 
 	*fpos = 0;
 	ssize_t res = 0;
+
+	pr_info("[%s]: count = [%d] -- *fpos = [%d]\n", __func__,  (int)count, (int)*fpos);
 
 	struct hangman_args *args = filep->private_data;
 

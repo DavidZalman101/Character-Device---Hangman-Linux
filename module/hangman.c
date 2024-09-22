@@ -3,7 +3,7 @@
  * module.c - Implements the hangman game
  */
 
-// TODO: set game args into 1 structure
+// TODO: create 10 device files for the game
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -11,11 +11,15 @@
 #include <linux/fs.h>
 #include <linux/uaccess.h>
 #include <linux/ioctl.h>
+#include <linux/string.h>
 
 #ifndef IOCTL_RESET
 #define IOCTL_RESET _IO(0x07, 1)
 #endif
 
+#define NUM_DEVICES 10
+#define DEVICE_0_NAME "hangman_0"
+#define DEVICE_NAME_LEN 9
 #define MY_MISC_D_NAME "hangman"
 #define SUCCESS 0
 #define MAX_MISTAKES 6
@@ -53,6 +57,24 @@ struct hangman_args {
 	char *guessed;
 	char tree[TREE_SIZE + 1];
 };
+
+/* Notice, thier index correspond to one another
+ * Meaning, the minor number at device_minor_nums[i]
+ * had his args at args_arr[i]
+ */
+int device_minor_nums[NUM_DEVICES] = {0};
+struct hangman_args args_arr[NUM_DEVICES];
+
+/* Helper function, return the index of a minor number in the device_minor_nums
+ * if does not exists, return -1
+ */
+int get_minor_idx(int minor)
+{
+	for (int i = 0; i < NUM_DEVICES; i++)
+		if (minor == device_minor_nums[i])
+			return i;
+	return -1;
+}
 
 /* methods */
 /* helper function, checks if a given string is constructed by lower letters a-z only */
@@ -175,17 +197,18 @@ void reset_game_params(struct hangman_args *args)
 	my_file_max_size = 0;
 }
 
-/* Called when a process tried to open the device file */
+/* Called when a process tried to open the device file
+ * Inserts the appropriate hangman_args in filep->private_data
+ */
 static int device_open(struct inode *inode, struct file *filep)
 {
-	struct hangman_args *args = kmalloc(sizeof(struct hangman_args), GFP_KERNEL);
+	int device_minor = iminor(inode);
+	int device_idx = get_minor_idx(device_minor);
 
-	if (!args)
-		return -ENOMEM;
+	if (device_idx == -1)
+		return -EINVAL;
 
-	reset_game_params(args);
-	filep->private_data = args;
-	pr_info("%s new game started, have fun!\n", __func__);
+	filep->private_data = &args_arr[device_idx];
 
 	return SUCCESS;
 }
@@ -193,13 +216,6 @@ static int device_open(struct inode *inode, struct file *filep)
 /* Called when a process closes the device file */
 static int device_release(struct inode *inode, struct file *filep)
 {
-	struct hangman_args *args = filep->private_data;
-
-	reset_game_params(args);
-
-	if (args)
-		kfree(args);
-
 	return SUCCESS;
 }
 
@@ -259,6 +275,7 @@ static ssize_t read_status_B(struct file *filep, char * __user buf, size_t count
 	}
 
 	retval = count - bytes_not_written;
+	*fpos += retval;// yea?
 
 out:
 	kfree(total_str);
@@ -475,31 +492,48 @@ static struct file_operations device_fops = {
 	.unlocked_ioctl = device_ioctl,
 };
 
-static struct miscdevice my_misc_device = {
-	.minor = MISC_DYNAMIC_MINOR,
-	.name = MY_MISC_D_NAME,
-	.fops = &device_fops,
-	.mode = 0666,
-};
+static struct miscdevice my_misc_devices[NUM_DEVICES];
 
+/*
+ * Modules init function
+ * Init all the device files, and thier repective hangman_args
+ */
 static int __init my_misc_driver_init(void)
 {
-	int ret = misc_register(&my_misc_device);
+	int ret = 0, i = 0;
+	for (i = 0; i < NUM_DEVICES; i++) {
 
-	if (ret) {
-		pr_err("Unable to register misc device\n");
-		return ret;
+		char device_i_name[DEVICE_NAME_LEN + 1] = DEVICE_0_NAME;
+		device_i_name[DEVICE_NAME_LEN - 1] = device_i_name[DEVICE_NAME_LEN - 1] + i;
+
+		my_misc_devices[i].minor = MISC_DYNAMIC_MINOR;
+		my_misc_devices[i].name = device_i_name;
+		my_misc_devices[i].fops = &device_fops;
+		my_misc_devices[i].mode = 0666;
+
+		ret = misc_register(&my_misc_devices[i]);
+		device_minor_nums[i] = my_misc_devices[i].minor;
+		reset_game_params(&args_arr[i]);
+
+		if (ret) {
+			while (i--)
+				misc_deregister(&my_misc_devices[i]);
+			return ret;
+		}
 	}
 
-	pr_info("Misc device registered: /dev/%s\n", my_misc_device.name);
+	pr_info("%d hangman devices registered\n", NUM_DEVICES);
 	return SUCCESS;
 }
 
 static void __exit my_misc_device_exit(void)
 {
-	/* free dynammically allocated data */
-	misc_deregister(&my_misc_device);
-	pr_info("Misc device unregistered: /dev/%s\n", my_misc_device.name);
+	for (int i = 0; i < NUM_DEVICES; i++) {
+		misc_deregister(&my_misc_devices[i]);
+		reset_game_params(&args_arr[i]);
+	}
+
+	pr_info("%d hangman devices unregistered\n", NUM_DEVICES);
 }
 
 module_init(my_misc_driver_init);

@@ -18,7 +18,7 @@
 //#define IOCTL_RESET 1
 #define HANGMAN_SIZE
 const char *read_in_a = "Please enter the word to be guessed\n";
-const char *filename = "/dev/hangman";
+const char *filename = "/dev/hangman_0";
 const char *secret_word = "apple";
 const char *secret_word_hidden = "*****";
 // testing character should be one of the secret word characters

@@ -3,11 +3,6 @@
  * module.c - Implements the hangman game
  */
 
-// TODO: add feature, modules gets a param at load time for 
-// number of device files to create
-
-// TODO: add sync for each device file
-
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/miscdevice.h>
@@ -48,7 +43,7 @@ enum status {
 	C
 };
 
-/* per-instance game structure */
+/* per-device game structure */
 struct hangman_args {
 	int secret_word_len;
 	int secret_hist[ABC];
@@ -62,10 +57,7 @@ struct hangman_args {
 	struct mutex arg_mutex_lock;
 };
 
-/* Notice, thier index correspond to one another
- * Meaning, the minor number at device_minor_nums[i]
- * had his args at args_arr[i]
- */
+/* i-th element for the i-th device */
 int device_minor_nums[NUM_DEVICES] = {0};
 struct hangman_args args_arr[NUM_DEVICES];
 
@@ -547,7 +539,7 @@ error:
 	return -EINVAL;
 }
 
-
+/* file operations */
 static struct file_operations device_fops = {
 	.owner = THIS_MODULE,
 	.open = device_open,
@@ -558,11 +550,12 @@ static struct file_operations device_fops = {
 	.unlocked_ioctl = device_ioctl,
 };
 
+/* misc devices */
 static struct miscdevice my_misc_devices[NUM_DEVICES];
 
 /*
  * Modules init function
- * Init all the device files, and thier repective hangman_args
+ * Init all the device files, and their repective hangman_args
  */
 static int __init my_misc_driver_init(void)
 {
@@ -582,6 +575,7 @@ static int __init my_misc_driver_init(void)
 		reset_game_params(&args_arr[i]);
 		mutex_init(&args_arr[i].arg_mutex_lock);
 
+		// deregister the first i-1 devices
 		if (ret) {
 			while (i--)
 				misc_deregister(&my_misc_devices[i]);
@@ -593,6 +587,7 @@ static int __init my_misc_driver_init(void)
 	return SUCCESS;
 }
 
+/* destroy all devices and dynammic allocated memory */
 static void __exit my_misc_device_exit(void)
 {
 	for (int i = 0; i < NUM_DEVICES; i++) {

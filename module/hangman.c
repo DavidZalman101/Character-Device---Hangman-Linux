@@ -6,6 +6,8 @@
 // TODO: add feature, modules gets a param at load time for 
 // number of device files to create
 
+// TODO: add sync for each device file
+
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/miscdevice.h>
@@ -13,6 +15,7 @@
 #include <linux/uaccess.h>
 #include <linux/ioctl.h>
 #include <linux/string.h>
+#include <linux/mutex.h>
 
 #ifndef IOCTL_RESET
 #define IOCTL_RESET _IO(0x07, 1)
@@ -28,7 +31,6 @@
 #define ABC 26
 
 /* Interenal arguments of the game */
-loff_t my_file_max_size = 0;
 static char empty_tree[] =
 "  _______\n"
 "  |     |\n"
@@ -57,6 +59,7 @@ struct hangman_args {
 	char *secret_word;
 	char *guessed;
 	char tree[TREE_SIZE + 1];
+	struct mutex arg_mutex_lock;
 };
 
 /* Notice, thier index correspond to one another
@@ -195,7 +198,6 @@ void reset_game_params(struct hangman_args *args)
 	args->guessed = NULL;
 
 	strscpy(args->tree, empty_tree, TREE_SIZE + 1);
-	my_file_max_size = 0;
 }
 
 /* Called when a process tried to open the device file
@@ -291,13 +293,14 @@ static ssize_t read_status_C(struct file *filep, char * __user buf, size_t count
 /* called when somebody tries to read from out device file */
 static ssize_t device_read(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
-	pr_info("[%s]: count = [%d] -- *fpos = [%d]\n", __func__,  (int)count, (int)*fpos);
-
 	ssize_t res = 0;
 	struct hangman_args* args = filep->private_data;
 
 	if (!args)
 		return -EINVAL;
+
+	if (mutex_lock_interruptible(&args->arg_mutex_lock))
+		return -EINTR;
 
 	switch (args->current_status) {
 	case A:
@@ -314,6 +317,7 @@ static ssize_t device_read(struct file *filep, char * __user buf, size_t count, 
 		break;
 	}
 
+	mutex_unlock(&args->arg_mutex_lock);
 	return res;
 }
 
@@ -349,7 +353,6 @@ static ssize_t device_write_A(struct file *filep, const char __user *buf,
 	}
 
 	args->secret_word_len = count;
-	my_file_max_size = count; //TODO: um?
 	build_secret_histogram(args);
 	args->tries_made = 0;
 	args->current_status = B;
@@ -441,15 +444,18 @@ static ssize_t device_write_C(struct file *filep, const char __user *buf,
 /* called when somebody tries to write into our device file */
 static ssize_t device_write(struct file *filep, const char __user *buf, size_t count, loff_t *fpos)
 {
-	if (count == 0)
-		return 0;
+
+	ssize_t res = 0;
+	struct hangman_args *args = filep->private_data;
+
+	if (mutex_lock_interruptible(&args->arg_mutex_lock))
+		return -EINTR;
 
 	*fpos = 0;
-	ssize_t res = 0;
-
-	pr_info("[%s]: count = [%d] -- *fpos = [%d]\n", __func__,  (int)count, (int)*fpos);
-
-	struct hangman_args *args = filep->private_data;
+	if (count == 0) {
+		mutex_unlock(&args->arg_mutex_lock);
+		return 0;
+	}
 
 	switch (args->current_status) {
 	case A:
@@ -470,22 +476,77 @@ static ssize_t device_write(struct file *filep, const char __user *buf, size_t c
 	}
 
 	*fpos = 0; // after each complete write, we reset the fpos
+	mutex_unlock(&args->arg_mutex_lock);
 	return res;
 }
 
 static long device_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
+	struct hangman_args *args = filep->private_data;
+
+	if (mutex_lock_interruptible(&args->arg_mutex_lock))
+		return -EINTR;
+
 	switch(cmd) {
 	case IOCTL_RESET:
 		// reset the game
 		reset_game_params(filep->private_data);
 		break;
 	default:
+		mutex_unlock(&args->arg_mutex_lock);
 		return -EINVAL;
 	}
 
+	mutex_unlock(&args->arg_mutex_lock);
 	return 0;
 }
+
+static loff_t device_llseek(struct file *filep, loff_t offset, int whence)
+{
+	loff_t new_pos = 0;
+	struct hangman_args *args = filep->private_data;
+
+	if (mutex_lock_interruptible(&args->arg_mutex_lock))
+		return -EINTR;
+
+	switch (whence) {
+	case SEEK_SET:
+		// set position to offset
+		if (offset < 0 || offset > args->secret_word_len)
+			goto error;
+
+		new_pos = offset;
+		break;
+	
+	case SEEK_CUR:
+		// update position relative to current position
+		if ((filep->f_pos + offset) < 0 || (filep->f_pos + offset) > args->secret_word_len)
+			goto error;
+		
+		new_pos = filep->f_pos + offset;
+		break;
+	
+	case SEEK_END:
+		// set position relative to the end
+		if ((args->secret_word_len + offset) < 0 || offset > 0)
+			goto error;
+
+		new_pos = args->secret_word_len + offset;
+		break;
+	
+	default:
+		goto error;
+	}
+
+	filep->f_pos = new_pos;
+	mutex_unlock(&args->arg_mutex_lock);
+	return new_pos;
+
+error:
+	mutex_unlock(&args->arg_mutex_lock);
+	return -EINVAL;
+}
+
 
 static struct file_operations device_fops = {
 	.owner = THIS_MODULE,
@@ -493,7 +554,7 @@ static struct file_operations device_fops = {
 	.release = device_release,
 	.read = device_read,
 	.write = device_write,
-	.llseek = generic_file_llseek,
+	.llseek = device_llseek,
 	.unlocked_ioctl = device_ioctl,
 };
 
@@ -519,6 +580,7 @@ static int __init my_misc_driver_init(void)
 		ret = misc_register(&my_misc_devices[i]);
 		device_minor_nums[i] = my_misc_devices[i].minor;
 		reset_game_params(&args_arr[i]);
+		mutex_init(&args_arr[i].arg_mutex_lock);
 
 		if (ret) {
 			while (i--)

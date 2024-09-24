@@ -12,7 +12,7 @@
 #include <pthread.h>
 #include "hangman_device_ioctl.h"
 
-#define NUM_TESTS 25
+#define NUM_TESTS 30
 #define NON_ZERO 1
 #define READ_BUFFER_SIZE 500 // hangman drawing+secret_word will be less
 //#define IOCTL_RESET 1
@@ -1337,6 +1337,326 @@ void check_run_game_20_times(void)
 	PRINT_OK();
 }
 
+void run_one_thread_two_devices(void)
+{
+	int fd1 = open("/dev/hangman_1", 2);
+	int fd2 = open("/dev/hangman_2", 2);
+
+	ioctl(fd1, IOCTL_RESET, NULL);
+	ioctl(fd2, IOCTL_RESET, NULL);
+
+	int res = run_full_game_and_reset(fd1, "linuxkernel", 11, 8);
+	if (res != 1)
+		return;
+
+	res = run_full_game_and_reset(fd2, "kernellinux", 11, 11);
+	if (res != 1)
+		return;
+
+	ioctl(fd1, IOCTL_RESET, NULL);
+	ioctl(fd2, IOCTL_RESET, NULL);
+
+	close(fd1);
+	close(fd2);
+
+	PRINT_OK();
+}
+
+void *thread_one_job(void *arg)
+{
+	int *result = (int*)arg;
+	int fd = open("/dev/hangman_5", 2);
+	char half_guess[] = "element";
+	int half_guess_len = strlen(half_guess);
+	int write_half_word = write(fd, half_guess, half_guess_len);
+
+	if (write_half_word != 7)
+		*result = 0;
+	else
+		*result = 1;
+
+	close(fd);
+	return NULL;
+}
+
+void *thread_two_job(void *arg)
+{
+	int *result = (int*)arg;
+	int fd = open("/dev/hangman_5", 2);
+	char half_guess[] = "zero";
+	int half_guess_len = strlen(half_guess);
+	int write_half_word = write(fd, half_guess, half_guess_len);
+
+	if (write_half_word != 4)
+		*result = 0;
+	else
+		*result = 1;
+
+	close(fd);
+	return NULL;
+}
+
+void run_two_threads_one_device(void)
+{
+
+	int fd = open("/dev/hangman_5", 2);
+
+	ioctl(fd, IOCTL_RESET, NULL);
+
+	// place the secret word
+	char secret_word[] = "elementzero";
+	int secret_word_len = strlen(secret_word);
+	int write_secret_word_ret = pick_secret_word(fd, secret_word, secret_word_len);
+
+	if (!write_secret_word_ret) {
+		close(fd);
+		return;
+	}
+
+	// create 2 threads that will play the same game
+
+	pthread_t threads[2];
+	int results[2] = {0};
+
+	int old_stdout = dup(STDOUT_FILENO);
+	int dev_null = open("/dev/null", O_WRONLY);
+
+	dup2(dev_null, STDOUT_FILENO);
+	close(dev_null);
+
+	pthread_create(&threads[0], NULL, thread_one_job, &results[0]);
+	pthread_create(&threads[1], NULL, thread_two_job, &results[1]);
+
+	
+	// Wait for threads to finish
+	pthread_join(threads[0], NULL);
+	pthread_join(threads[1], NULL);
+
+	// Restore stdout after threads have completed
+	dup2(old_stdout, STDOUT_FILENO);
+	close(old_stdout);
+
+	// check results
+	if (results[0] == 0 || results[1] == 0) {
+		PRINT_ERR("threads failed\n");
+		return;
+	}
+
+	char read_guessed[12] = "";
+	read(fd, read_guessed, 11);
+	
+	if (strcmp(read_guessed, secret_word) != 0) {
+		PRINT_ERR("threads failed - did not guess correctly when should\n");
+		return;
+	}
+
+	PRINT_OK();
+}
+
+void *thread_good_job(void *arg)
+{
+	int *result = (int*)arg;
+	int fd = open("/dev/hangman_5", 2);
+	char guess[] = "norm";
+	int guess_len = strlen(guess);
+	int write_guess = write(fd, guess , guess_len);
+
+	if (write_guess != 4)
+		*result = 0;
+	else
+		*result = 1;
+	
+	close(fd);
+	return NULL;
+}
+
+void *thread_bad_job(void *arg)
+{
+	int *result = (int*)arg;
+	int fd = open("/dev/hangman_5", 2);
+	char guess[] = "black";
+	int guess_len = strlen(guess);
+	write(fd, guess , guess_len);
+
+	*result = 1;
+	
+	close(fd);
+	return NULL;
+}
+
+// secret word is ssvnormandy
+// good will guess norm
+// bad will guess thebalckrock
+void run_good_bad_threads_one_device(void)
+{
+	int fd = open("/dev/hangman_5", 2);
+
+	ioctl(fd, IOCTL_RESET, NULL);
+
+	//place the secret word
+	char secret_word[] = "ssvnormandy"; // mass effect refrence
+	int secret_word_len = strlen(secret_word);
+	pick_secret_word(fd, secret_word, secret_word_len);
+
+	// create 2 threads that will play the game
+	
+	pthread_t threads[2];
+	int results[2] = {0};
+
+	int old_stdout = dup(STDOUT_FILENO);
+	int dev_null = open("/dev/null", O_WRONLY);
+
+	dup2(dev_null, STDOUT_FILENO);
+	close(dev_null);
+
+	pthread_create(&threads[0], NULL, thread_good_job, &results[0]);
+	pthread_create(&threads[1], NULL, thread_bad_job, &results[1]);
+
+	// wait for threads to finish
+	pthread_join(threads[0], NULL);
+	pthread_join(threads[1], NULL);
+
+	// Restore stdout after threads have completed
+	dup2(old_stdout, STDOUT_FILENO);
+	close(old_stdout);
+
+	// check results
+	if (results[0] == 0 || results[1] == 0) {
+		PRINT_ERR("threads failed\n");
+		return;
+	}
+
+	char expected_str[] = "***norman**";
+	char buf[12] = "";
+	read(fd, buf, 11);
+
+	if (strcmp(buf, expected_str) != 0) {
+		PRINT_ERR("threads failed - did not guess correctly when should\n");
+		return;
+	}
+
+	PRINT_OK();
+}
+
+void* thread_race(void *arg)
+{
+	int fd = open("/dev/hangman_1", 2);
+	char guess[] = "krogan";
+	write(fd, guess, strlen(guess));
+
+	return NULL;
+}
+
+// test that they don't run over one another
+void run_multiple_threads_racing(void)
+{
+	int fd = open("/dev/hangman_1", 2);
+
+	ioctl(fd, IOCTL_RESET, NULL);
+
+	//place the secret word
+	char secret_word[] = "krogan"; // mass effect refrence
+	int secret_word_len = strlen(secret_word);
+	pick_secret_word(fd, secret_word, secret_word_len);
+
+	// create 15 threads that will play the game
+	
+	pthread_t threads[15];
+
+	int old_stdout = dup(STDOUT_FILENO);
+	int dev_null = open("/dev/null", O_WRONLY);
+
+	dup2(dev_null, STDOUT_FILENO);
+	close(dev_null);
+
+	for (int i = 0; i < 15; i++)
+		pthread_create(&threads[i], NULL, thread_race, NULL);
+
+	// wait for threads to finish
+	for (int i = 0; i < 15; i++)
+		pthread_join(threads[i], NULL);
+
+	// Restore stdout after threads have completed
+	dup2(old_stdout, STDOUT_FILENO);
+	close(old_stdout);
+
+	// check results
+	char buf[7] = "";
+	read(fd, buf, 6);
+
+	if (strcmp(buf, secret_word) != 0) {
+		PRINT_ERR("threads failed - did not guess correctly when should\n");
+		return;
+	}
+
+	PRINT_OK();
+}
+
+void *thread_good_but_slow(void *arg)
+{
+	int fd = open("/dev/hangman_1", 2);
+	char secret_word[] = "protheans";
+	for (int i = 0; i < strlen(secret_word); i++) {
+		sleep(0.1); // that alot of cpu time
+		write(fd, &secret_word[i], 1);
+	}
+	return NULL;
+}
+
+void *thread_wrong(void *arg)
+{
+	int fd = open("/dev/hangman_1", 2);
+	char wrong_guess[] = "zuky";
+	for (int i = 0; i < strlen(wrong_guess); i++)
+		write(fd, &wrong_guess[i], 1);
+	return NULL;
+}
+
+void run_99_bad_1_good(void)
+{
+	int fd = open("/dev/hangman_1", 2);
+
+	ioctl(fd, IOCTL_RESET, NULL);
+
+	//place the secret word
+	char secret_word[] = "protheans"; // mass effect refrence
+	int secret_word_len = strlen(secret_word);
+	pick_secret_word(fd, secret_word, secret_word_len);
+
+	// create 100 threads that will play the game
+	
+	pthread_t threads[100];
+
+	int old_stdout = dup(STDOUT_FILENO);
+	int dev_null = open("/dev/null", O_WRONLY);
+
+	dup2(dev_null, STDOUT_FILENO);
+	close(dev_null);
+
+	pthread_create(&threads[0], NULL, thread_good_but_slow, NULL);
+	for (int i = 1; i < 100; i++)
+		pthread_create(&threads[i], NULL, thread_wrong, NULL);
+
+	// wait for threads to finish
+	for (int i = 0; i < 100; i++)
+		pthread_join(threads[i], NULL);
+
+	// Restore stdout after threads have completed
+	dup2(old_stdout, STDOUT_FILENO);
+	close(old_stdout);
+
+	// check results
+	char buf[10] = "";
+	read(fd, buf, 9);
+
+	if (strcmp(buf, secret_word) != 0) {
+		PRINT_ERR("threads failed - did not guess correctly when should\n");
+		return;
+	}
+
+	PRINT_OK();
+}
+
 void (*test_ptrs[NUM_TESTS])(void) = {
 	check_null_dereference,
 	check_invaild_buffer_address,
@@ -1363,6 +1683,11 @@ void (*test_ptrs[NUM_TESTS])(void) = {
 	check_run_games_different_words,
 	check_100_threads,
 	check_run_game_20_times,
+	run_one_thread_two_devices,
+	run_two_threads_one_device,
+	run_good_bad_threads_one_device,
+	run_multiple_threads_racing,
+	run_99_bad_1_good,
 };
 
 int main(void)

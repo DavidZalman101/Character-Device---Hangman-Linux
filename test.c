@@ -1127,7 +1127,6 @@ void check_write_zero_bytes_in_B_returns_no_error(void)
 	char buffer_2[HANGMAN_AND_SECRET_WORD_SIZE + 1];
 	ssize_t bytes_read_2 = read(file, buffer_2, HANGMAN_AND_SECRET_WORD_SIZE + 1);
 	if (bytes_read_2 != HANGMAN_AND_SECRET_WORD_SIZE) {
-		printf("bytes_read_2 = [%d] -- HANGMAN_AND_SECRET_WORD_SIZE = [%d]\n", (int)bytes_read_2, HANGMAN_AND_SECRET_WORD_SIZE);
 		PRINT_ERR("unexpected error while reading, errno=%d", errno);
 		is_success = false;
 		goto close;
@@ -1237,6 +1236,9 @@ void check_run_games_different_words(void)
  * different DI until completion of the game. This will
  * test the validity in the implementation given that
  * asynchronous calls are placed.
+ *
+ * Updated the test, will only check for memory errors
+ * we added tests that also check results
  */
 int thread_job(void)
 {
@@ -1246,13 +1248,9 @@ int thread_job(void)
 		return -1;
 	}
 
-	int ret = run_full_game_and_reset(file, "anakin", 6, 5); //TODO: cringe
+	run_full_game_and_reset(file, "anakin", 6, 5); //TODO: cringe
 
 	close(file);
-
-	if (ret != 1) {
-		return -1;
-	}
 
 	return 1;
 }
@@ -1289,7 +1287,7 @@ void check_100_threads(void)
 			dup2(old_stdout,
 			     STDOUT_FILENO); // Restore stdout before printing the error
 			close(old_stdout);
-			PRINT_ERR("Error creating thread %d\n", i);
+			PRINT_ERR("Error creating thread %d", i);
 			return;
 		}
 	}
@@ -1303,16 +1301,16 @@ void check_100_threads(void)
 	dup2(old_stdout, STDOUT_FILENO);
 	close(old_stdout);
 
-	// Check the results -> THIS MAKES NO SENSE, eveyone are on the same device... they are going to 
+	// Check the results
 	// step on one another, if the author meant to run different games
 	// he should have run them on different devices
 	// we will add such a test in the new +5 additional test :)
-	//for (int i = 0; i < 2; i++) {
-	//	if (results[i] != 1) {
-	//		PRINT_ERR("Error: Thread %d did not return success\n", i);
-	//		return;
-	//	}
-	//}
+	for (int i = 0; i < 2; i++) {
+		if (results[i] != 1) {
+			PRINT_ERR("Error: Thread %d did not return success", i);
+			return;
+		}
+	}
 	PRINT_OK();
 }
 
@@ -1427,7 +1425,6 @@ void run_two_threads_one_device(void)
 	pthread_create(&threads[0], NULL, thread_one_job, &results[0]);
 	pthread_create(&threads[1], NULL, thread_two_job, &results[1]);
 
-	
 	// Wait for threads to finish
 	pthread_join(threads[0], NULL);
 	pthread_join(threads[1], NULL);
@@ -1438,15 +1435,14 @@ void run_two_threads_one_device(void)
 
 	// check results
 	if (results[0] == 0 || results[1] == 0) {
-		PRINT_ERR("threads failed\n");
+		PRINT_ERR("threads failed");
 		return;
 	}
 
 	char read_guessed[12] = "";
 	read(fd, read_guessed, 11);
-	
 	if (strcmp(read_guessed, secret_word) != 0) {
-		PRINT_ERR("threads failed - did not guess correctly when should\n");
+		PRINT_ERR("threads failed - did not guess correctly when should");
 		return;
 	}
 
@@ -1465,7 +1461,7 @@ void *thread_good_job(void *arg)
 		*result = 0;
 	else
 		*result = 1;
-	
+
 	close(fd);
 	return NULL;
 }
@@ -1479,7 +1475,6 @@ void *thread_bad_job(void *arg)
 	write(fd, guess , guess_len);
 
 	*result = 1;
-	
 	close(fd);
 	return NULL;
 }
@@ -1499,7 +1494,6 @@ void run_good_bad_threads_one_device(void)
 	pick_secret_word(fd, secret_word, secret_word_len);
 
 	// create 2 threads that will play the game
-	
 	pthread_t threads[2];
 	int results[2] = {0};
 
@@ -1522,7 +1516,7 @@ void run_good_bad_threads_one_device(void)
 
 	// check results
 	if (results[0] == 0 || results[1] == 0) {
-		PRINT_ERR("threads failed\n");
+		PRINT_ERR("threads failed");
 		return;
 	}
 
@@ -1531,7 +1525,7 @@ void run_good_bad_threads_one_device(void)
 	read(fd, buf, 11);
 
 	if (strcmp(buf, expected_str) != 0) {
-		PRINT_ERR("threads failed - did not guess correctly when should\n");
+		PRINT_ERR("threads failed - did not guess correctly when should");
 		return;
 	}
 
@@ -1560,7 +1554,6 @@ void run_multiple_threads_racing(void)
 	pick_secret_word(fd, secret_word, secret_word_len);
 
 	// create 15 threads that will play the game
-	
 	pthread_t threads[15];
 
 	int old_stdout = dup(STDOUT_FILENO);
@@ -1585,7 +1578,7 @@ void run_multiple_threads_racing(void)
 	read(fd, buf, 6);
 
 	if (strcmp(buf, secret_word) != 0) {
-		PRINT_ERR("threads failed - did not guess correctly when should\n");
+		PRINT_ERR("threads failed - did not guess correctly when should");
 		return;
 	}
 
@@ -1624,7 +1617,6 @@ void run_99_bad_1_good(void)
 	pick_secret_word(fd, secret_word, secret_word_len);
 
 	// create 100 threads that will play the game
-	
 	pthread_t threads[100];
 
 	int old_stdout = dup(STDOUT_FILENO);
@@ -1650,7 +1642,7 @@ void run_99_bad_1_good(void)
 	read(fd, buf, 9);
 
 	if (strcmp(buf, secret_word) != 0) {
-		PRINT_ERR("threads failed - did not guess correctly when should\n");
+		PRINT_ERR("threads failed - did not guess correctly when should");
 		return;
 	}
 

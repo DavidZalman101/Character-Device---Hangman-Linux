@@ -61,9 +61,9 @@ struct hangman_args {
 int device_minor_nums[NUM_DEVICES] = {0};
 struct hangman_args args_arr[NUM_DEVICES];
 
-/* Helper function, return the index of a minor number in the device_minor_nums
- * if does not exists, return -1
- */
+/* Helper methods */
+
+/* return the index of a minor number in the device_minor_nums */
 int get_minor_idx(int minor)
 {
 	for (int i = 0; i < NUM_DEVICES; i++)
@@ -72,8 +72,7 @@ int get_minor_idx(int minor)
 	return -1;
 }
 
-/* methods */
-/* helper function, checks if a given string is constructed by lower letters a-z only */
+/* checks string is lower letters a-z only */
 static int string_all_a_z(char *str, int len)
 {
 	if (!str)
@@ -85,7 +84,7 @@ static int string_all_a_z(char *str, int len)
 	return 1;
 }
 
-/* Helper function, builds the secret histogram of the secret word */
+/* builds secret hist for secret word */
 static void build_secret_histogram(struct hangman_args *args)
 {
 	if (!args || !args->secret_word)
@@ -97,7 +96,7 @@ static void build_secret_histogram(struct hangman_args *args)
 		args->secret_hist[args->secret_word[i] - 'a'] = 1;
 }
 
-/* Helper function, updated the tree after a wrong guess */
+/* updated tree after wrong guess */
 void update_tree_add_limb(struct hangman_args *args)
 {
 	if (!args || args->tries_made == 0)
@@ -106,7 +105,7 @@ void update_tree_add_limb(struct hangman_args *args)
 	args->tree[limb_idx[args->tries_made - 1]] = limb_shape[args->tries_made - 1];
 }
 
-/* Helper function, updated the guess word w.r.t. a given char */
+/* updated guess word w.r.t. a given char */
 void update_guess_word(struct hangman_args *args, char *char_to_guess)
 {
 	if (!args)
@@ -117,7 +116,7 @@ void update_guess_word(struct hangman_args *args, char *char_to_guess)
 			args->guessed[i] = char_to_guess[0];
 }
 
-/* Helper function, checks if secret were descovered */
+/* checks if secret was discovered */
 int check_if_secret_found(struct hangman_args *args)
 {
 	if (!args)
@@ -126,14 +125,11 @@ int check_if_secret_found(struct hangman_args *args)
 	for (int i = 0; i < ABC; i++)
 		if (args->guessed_correct_hist[i] != args->secret_hist[i])
 			return 0;
-	
+
 	return args->tries_made < MAX_MISTAKES;
 }
 
-/* Helper function, updated the hists and tries_made w.r.t. a given char
- * if the char_to_guess is corrent, and was not discoved thus far
- * return the number of appearances it has, o.w. -1
- */
+/* updated hists and tries_made w.r.t. a given char */
 void update_game_params(struct hangman_args *args, char *char_to_guess)
 {
 	if (!char_to_guess || !args)
@@ -145,11 +141,11 @@ void update_game_params(struct hangman_args *args, char *char_to_guess)
 	if (args->secret_hist[char_idx] == 1) {
 		if (args->guessed_correct_hist[char_idx] == 1)
 			return; // was already guessed
-		
+
 		update_guess_word(args, char_to_guess);
 		args->guessed_correct_hist[char_idx] = 1;
 
-		// game won? 
+		// game won?
 		if (check_if_secret_found(args) == 1)
 			args->current_status = C;
 		return;
@@ -167,7 +163,7 @@ void update_game_params(struct hangman_args *args, char *char_to_guess)
 		args->current_status = C;
 }
 
-/* Helper function, resets the arguments of the game */
+/* resets arguments of the game */
 void reset_game_params(struct hangman_args *args)
 {
 	if (!args)
@@ -192,7 +188,10 @@ void reset_game_params(struct hangman_args *args)
 	strscpy(args->tree, empty_tree, TREE_SIZE + 1);
 }
 
-/* Called when a process tried to open the device file
+/* Module syscalls */
+
+/*
+ * Called when a process tries to open a device file.
  * Inserts the appropriate hangman_args in filep->private_data
  */
 static int device_open(struct inode *inode, struct file *filep)
@@ -208,12 +207,19 @@ static int device_open(struct inode *inode, struct file *filep)
 	return SUCCESS;
 }
 
-/* Called when a process closes the device file */
+/*
+ * Called when a process closes the device file.
+ * Does not release the appropriate hangman_args.
+ */
 static int device_release(struct inode *inode, struct file *filep)
 {
 	return SUCCESS;
 }
 
+/*
+ * Called when a process reads the device on status A.
+ * Will return the status A msg
+ */
 static ssize_t read_status_A(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
 	char *msg = "Please enter the word to be guessed\n";
@@ -241,6 +247,9 @@ static ssize_t read_status_A(struct file *filep, char * __user buf, size_t count
 	return msg_len - bytes_not_written;
 }
 
+/*
+ * Called when a process reads the device on status B.
+ */
 static ssize_t read_status_B(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
 	ssize_t retval = 0, bytes_not_written = 0;
@@ -270,19 +279,20 @@ static ssize_t read_status_B(struct file *filep, char * __user buf, size_t count
 	}
 
 	retval = count - bytes_not_written;
-	*fpos += retval;// yea?
+	*fpos += retval;
 
 out:
 	kfree(total_str);
 	return retval;
 }
 
+/* Called when a process reads the device on status C */
 static ssize_t read_status_C(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
 	return read_status_B(filep, buf, count, fpos);
 }
 
-/* called when somebody tries to read from out device file */
+/* read syscall */
 static ssize_t device_read(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
 	ssize_t res = 0;
@@ -313,6 +323,7 @@ static ssize_t device_read(struct file *filep, char * __user buf, size_t count, 
 	return res;
 }
 
+/* Called when a process writes to a device on status A */
 static ssize_t device_write_A(struct file *filep, const char __user *buf,
 			      size_t count, loff_t *fpos)
 {
@@ -373,7 +384,7 @@ out:
 	return retval;
 }
 
-/* handle one char at a time */
+/* helper for device_write_B, will write one char to device on status B */
 static ssize_t device_write_one_char_B(struct file *filep, const char __user *buf,
 				       size_t count, loff_t *fpos)
 {
@@ -400,6 +411,7 @@ static ssize_t device_write_one_char_B(struct file *filep, const char __user *bu
 	return 1;
 }
 
+/* Called when a process writes to device on status B */
 static ssize_t device_write_B(struct file *filep, const char __user *buf,
 				       size_t count, loff_t *fpos)
 {
@@ -427,23 +439,23 @@ static ssize_t device_write_B(struct file *filep, const char __user *buf,
 	return bytes_written;
 }
 
+/* Called when a process writes to device on status C */
 static ssize_t device_write_C(struct file *filep, const char __user *buf,
 			      size_t count, loff_t *fpos)
 {
 	return -EINVAL;
 }
 
-/* called when somebody tries to write into our device file */
+/* write syscall */
 static ssize_t device_write(struct file *filep, const char __user *buf, size_t count, loff_t *fpos)
 {
-
 	ssize_t res = 0;
 	struct hangman_args *args = filep->private_data;
 
 	if (mutex_lock_interruptible(&args->arg_mutex_lock))
 		return -EINTR;
 
-	*fpos = 0;
+	*fpos = 0; // at the beginig of each write we reset the fpos
 	if (count == 0) {
 		mutex_unlock(&args->arg_mutex_lock);
 		return 0;
@@ -467,11 +479,12 @@ static ssize_t device_write(struct file *filep, const char __user *buf, size_t c
 		break;
 	}
 
-	*fpos = 0; // after each complete write, we reset the fpos
+	*fpos = 0; // after each complete write we reset the fpos
 	mutex_unlock(&args->arg_mutex_lock);
 	return res;
 }
 
+/* iocrl syscall */
 static long device_ioctl(struct file *filep, unsigned int cmd, unsigned long arg)
 {
 	struct hangman_args *args = filep->private_data;
@@ -493,6 +506,7 @@ static long device_ioctl(struct file *filep, unsigned int cmd, unsigned long arg
 	return 0;
 }
 
+/* llseek syscall */
 static loff_t device_llseek(struct file *filep, loff_t offset, int whence)
 {
 	loff_t new_pos = 0;
@@ -509,15 +523,15 @@ static loff_t device_llseek(struct file *filep, loff_t offset, int whence)
 
 		new_pos = offset;
 		break;
-	
+
 	case SEEK_CUR:
 		// update position relative to current position
 		if ((filep->f_pos + offset) < 0 || (filep->f_pos + offset) > args->secret_word_len)
 			goto error;
-		
+
 		new_pos = filep->f_pos + offset;
 		break;
-	
+
 	case SEEK_END:
 		// set position relative to the end
 		if ((args->secret_word_len + offset) < 0 || offset > 0)
@@ -525,7 +539,7 @@ static loff_t device_llseek(struct file *filep, loff_t offset, int whence)
 
 		new_pos = args->secret_word_len + offset;
 		break;
-	
+
 	default:
 		goto error;
 	}
@@ -553,10 +567,7 @@ static struct file_operations device_fops = {
 /* misc devices */
 static struct miscdevice my_misc_devices[NUM_DEVICES];
 
-/*
- * Modules init function
- * Init all the device files, and their repective hangman_args
- */
+/* Modules init function */
 static int __init my_misc_driver_init(void)
 {
 	int ret = 0, i = 0;

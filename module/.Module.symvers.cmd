@@ -1,1 +1,0 @@
-savedcmd_/home/user_npc/KDLP_Project/module/Module.symvers :=  scripts/mod/modpost        -o /home/user_npc/KDLP_Project/module/Module.symvers -T /home/user_npc/KDLP_Project/module/modules.order -i Module.symvers -e 

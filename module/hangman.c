@@ -24,16 +24,15 @@
 #define MAX_MISTAKES 6
 #define TREE_SIZE 62
 #define ABC 26
-
 /* Interenal arguments of the game */
 static char empty_tree[] =
-"  _______\n"
-"  |     |\n"
-"  |      \n"
-"  |       \n"
-"  |       \n"
-"  |\n"
-"__|__\n";
+	"  _______\n" //0-9
+	"  |     |\n" //10-19
+	"  |      \n" //20-29
+	"  |       \n" //30-40
+	"  |       \n" //41-51
+	"  |\n" //52-55
+	"__|__\n"; //56-61
 static int limb_idx[] = {28, 38, 37, 39, 48, 50};
 static char limb_shape[] = {'O', '|', '/', '\\', '/', '\\'};
 
@@ -54,6 +53,11 @@ struct hangman_args {
 	char *secret_word;
 	char *guessed;
 	char tree[TREE_SIZE + 1];
+	/* protect the hangman_args data
+	 * using this lock, it is up to you
+	 * to always aquire the lock before
+	 * looking or changing the strcut
+	 */
 	struct mutex arg_mutex_lock;
 };
 
@@ -175,16 +179,10 @@ void reset_game_params(struct hangman_args *args)
 	memset(args->guessed_incorrect_hist, 0, sizeof(args->guessed_incorrect_hist));
 	args->tries_made = 0;
 	args->current_status = A;
-
-	if (args->secret_word)
-		kfree(args->secret_word);
-
-	if (args->guessed)
-		kfree(args->guessed);
-
+	kfree(args->secret_word);
+	kfree(args->guessed);
 	args->secret_word = NULL;
 	args->guessed = NULL;
-
 	strscpy(args->tree, empty_tree, TREE_SIZE + 1);
 }
 
@@ -296,7 +294,7 @@ static ssize_t read_status_C(struct file *filep, char * __user buf, size_t count
 static ssize_t device_read(struct file *filep, char * __user buf, size_t count, loff_t *fpos)
 {
 	ssize_t res = 0;
-	struct hangman_args* args = filep->private_data;
+	struct hangman_args *args = filep->private_data;
 
 	if (!args)
 		return -EINVAL;
@@ -413,7 +411,7 @@ static ssize_t device_write_one_char_B(struct file *filep, const char __user *bu
 
 /* Called when a process writes to device on status B */
 static ssize_t device_write_B(struct file *filep, const char __user *buf,
-				       size_t count, loff_t *fpos)
+			      size_t count, loff_t *fpos)
 {
 	if (count == 0)
 		return 0;
@@ -434,7 +432,7 @@ static ssize_t device_write_B(struct file *filep, const char __user *buf,
 
 	if (write_B_retval == -EROFS) //finished the game
 		return bytes_written;
-	else if (write_B_retval < 0) // eror
+	else if (write_B_retval < 0) // error
 		return write_B_retval;
 	return bytes_written;
 }
@@ -468,7 +466,7 @@ static ssize_t device_write(struct file *filep, const char __user *buf, size_t c
 		break;
 	case B:
 		res = device_write_B(filep, buf, count, fpos);
-		// if the is game over, there won't be progess
+		// if the is game over, there won't be progress
 		break;
 	case C:
 		res = device_write_C(filep, buf, count, fpos);
@@ -492,7 +490,7 @@ static long device_ioctl(struct file *filep, unsigned int cmd, unsigned long arg
 	if (mutex_lock_interruptible(&args->arg_mutex_lock))
 		return -EINTR;
 
-	switch(cmd) {
+	switch (cmd) {
 	case IOCTL_RESET:
 		// reset the game
 		reset_game_params(filep->private_data);
@@ -571,9 +569,10 @@ static struct miscdevice my_misc_devices[NUM_DEVICES];
 static int __init my_misc_driver_init(void)
 {
 	int ret = 0, i = 0;
-	for (i = 0; i < NUM_DEVICES; i++) {
 
+	for (i = 0; i < NUM_DEVICES; i++) {
 		char device_i_name[DEVICE_NAME_LEN + 1] = DEVICE_0_NAME;
+
 		device_i_name[DEVICE_NAME_LEN - 1] = device_i_name[DEVICE_NAME_LEN - 1] + i;
 
 		my_misc_devices[i].minor = MISC_DYNAMIC_MINOR;

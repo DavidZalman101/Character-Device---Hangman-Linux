@@ -33,7 +33,7 @@ Please enter the word to be guessed
 ```
 
 ```sh
-echo -n "papayas" > /dev/hangman_0
+echo -n "papaya" > /dev/hangman_0
 ```
 
 **output**

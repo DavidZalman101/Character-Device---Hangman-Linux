@@ -1,18 +1,9 @@
-# Variables
-CC = gcc
-CFLAGS = -pthread -Wall
-TARGET = test.exe
-SRC = test.c
+obj-m += hangman.o
 
-# Build target
-all: $(TARGET)
+PWD := $(CURDIR)
 
-$(TARGET): $(SRC)
-	$(CC) $(SRC) -o $(TARGET) $(CFLAGS)
+all:
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
 
-# Clean up
 clean:
-	rm -f $(TARGET)
-
-# Phony targets
-.PHONY: all clean
+	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean

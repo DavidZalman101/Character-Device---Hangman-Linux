@@ -33,10 +33,6 @@ Please enter the word to be guessed
 ```
 
 ```sh
-Please enter the word to be guessed
-```
-
-```sh
 echo -n "papayas" > /dev/hangman_0
 ```
 

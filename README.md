@@ -1,15 +1,4 @@
 # Character Device - Hangman Linux
-### The compilers frontend stages
-- Lexical Analysis - Flex
-- Syntax Analysis - Bison
-- Semantic Analysis - Visitor Design
-- Intermediate Code Generation - LLVM
-
-## Build and run compiler
-**Make use of the Makefile for an easy build**
-```sh
-Make
-```
 
 ## Insert the module
 **Make use of the Makefile for an easy build**

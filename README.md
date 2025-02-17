@@ -41,7 +41,7 @@ echo -n "papayas" > /dev/hangman_0
 ```
 
 **output**
-```sh
+```
 ******
   _______
   |     |
@@ -56,7 +56,7 @@ __|__
 echo -n "papabs" > /dev/hangman_0
 ```
 
-```sh
+```
 papa*a
   _______
   |     |
@@ -71,7 +71,7 @@ __|__
 echo -n "papayas" > /dev/hangman_0
 ```
 
-```sh
+```
 papaya
   _______
   |     |

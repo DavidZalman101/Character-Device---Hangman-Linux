@@ -70,5 +70,5 @@ __|__
 ## Remove module and clean the build
 
 ```sh
-sudo rrmod hangman && make clean
+sudo rmmod hangman && make clean
 ```
